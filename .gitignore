@@ -1,0 +1,36 @@
+logs/*
+!logs/.gitkeep
+data/*.csv
+data/*.tmp
+__pycache__/
+
+# Public datasets and generated artifacts stay local (never upload to GitHub).
+data/public_loaders/
+data/raw/
+data/processed/
+data/archive/
+datasets/
+**/NF-UQ*.csv
+**/NF-UQ*.csv.*
+*.zip
+*.7z
+*.tar
+*.tar.gz
+*.pcap
+*.pcapng
+*.pkl
+*.joblib
+
+# Local credentials and private keys; .env.example may be versioned.
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.pfx
+*.p12
+id_rsa*
+id_ed25519*
+.venv/
+venv/
+*.pyc

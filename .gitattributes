@@ -1,0 +1,5 @@
+# Keep Linux container scripts usable when cloning on Windows.
+* text=auto
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.zeek text eol=lf

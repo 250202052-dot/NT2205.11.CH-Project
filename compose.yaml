@@ -1,0 +1,125 @@
+name: topic4
+
+services:
+  router:
+    build: ./lab/router
+    cap_add: [NET_ADMIN]
+    sysctls:
+      net.ipv4.ip_forward: "1"
+    networks:
+      clients:
+        interface_name: eth0
+        ipv4_address: 172.30.10.254
+      servers:
+        interface_name: eth1
+        ipv4_address: 172.30.20.254
+      monitor:
+        interface_name: eth2
+        ipv4_address: 172.30.99.10
+    healthcheck:
+      test: [CMD-SHELL, "iptables -C FORWARD -s 172.30.10.0/24 -d 172.30.20.10/32 -p tcp --dport 443 -j ACCEPT && tc filter show dev eth0 ingress | grep -q mirror0 && tc filter show dev eth0 egress | grep -q mirror0"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  client:
+    build: ./lab/client
+    cap_add: [NET_ADMIN]
+    depends_on:
+      router:
+        condition: service_healthy
+    networks:
+      clients:
+        ipv4_address: 172.30.10.10
+
+  tls-modern:
+    build:
+      context: ./lab/tls-server
+      args:
+        TLS_PROFILE: modern
+    cap_add: [NET_ADMIN]
+    depends_on:
+      router:
+        condition: service_healthy
+    networks:
+      servers:
+        ipv4_address: 172.30.20.10
+
+  tls-weak:
+    build:
+      context: ./lab/tls-server
+      args:
+        TLS_PROFILE: alternate
+    cap_add: [NET_ADMIN]
+    depends_on:
+      router:
+        condition: service_healthy
+    networks:
+      servers:
+        ipv4_address: 172.30.20.11
+
+  ssh-modern:
+    build:
+      context: ./lab/ssh-server
+      args:
+        SSH_PROFILE: baseline
+    cap_add: [NET_ADMIN]
+    depends_on:
+      router:
+        condition: service_healthy
+    networks:
+      servers:
+        ipv4_address: 172.30.20.20
+
+  ssh-weak:
+    build:
+      context: ./lab/ssh-server
+      args:
+        SSH_PROFILE: alternate
+    cap_add: [NET_ADMIN]
+    depends_on:
+      router:
+        condition: service_healthy
+    networks:
+      servers:
+        ipv4_address: 172.30.20.21
+
+  zeek:
+    # The Dockerfile pins Zeek and adds iproute2 for the receiving tunnel.
+    build: ./zeek
+    networks:
+      monitor:
+        interface_name: eth0
+        ipv4_address: 172.30.99.20
+    cap_add: [NET_RAW, NET_ADMIN]
+    depends_on:
+      router:
+        condition: service_healthy
+    working_dir: /logs
+    volumes:
+      - ./zeek:/config:ro
+      - ./logs:/logs
+    healthcheck:
+      test: [CMD-SHELL, "pgrep -x zeek >/dev/null && ip link show mirror0 >/dev/null"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+networks:
+  clients:
+    ipam:
+      config:
+        - subnet: 172.30.10.0/24
+  servers:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.20.0/24
+  monitor:
+    # Extra MTU accommodates VXLAN headers without truncating original frames.
+    internal: true
+    driver_opts:
+      com.docker.network.driver.mtu: "1600"
+    ipam:
+      config:
+        - subnet: 172.30.99.0/24
