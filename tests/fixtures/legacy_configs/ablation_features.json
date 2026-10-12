@@ -1,0 +1,18 @@
+{
+  "feature_set_version": "ablation-v1",
+  "groups": {
+    "A": {
+      "description": "L3/L4 only; no TLS/SSH identifiers or rule outputs",
+      "numeric": ["duration_seconds", "src_bytes", "dst_bytes", "src_packets", "dst_packets", "missed_bytes", "flow_total_bytes", "flow_total_packets", "flow_bytes_per_second", "flow_packets_per_second", "flow_src_byte_fraction", "flow_duration_missing_or_zero", "flow_source_connections_10s", "flow_source_connections_60s", "flow_source_unique_destinations_60s", "flow_source_unique_ports_60s"],
+      "categorical": ["dst_port", "transport_protocol", "connection_state", "flow_history"]
+    },
+    "B": {
+      "description": "TLS/SSH metadata; JA4SSH belongs here even though stored in conn.log",
+      "numeric": ["tls_established", "tls_resumed", "tls_certificate_visible", "tls_chain_length", "tls_hostname_matches", "cert_key_bits", "cert_validity_days", "cert_remaining_days_at_session", "cert_san_dns_count", "cert_san_ip_count", "ssh_version", "ssh_auth_attempts", "ssh_auth_success_inferred"],
+      "categorical": ["tls_version", "tls_cipher", "tls_curve", "tls_handshake_status", "tls_last_alert", "tls_certificate_trust", "tls_certificate_validity", "tls_ja3", "tls_ja3s", "tls_ja4", "tls_ja4s", "cert_key_type", "cert_signature_algorithm", "cert_issuer_class", "ssh_client", "ssh_server", "ssh_kex", "ssh_cipher", "ssh_mac", "ssh_mac_effective", "ssh_host_key_algorithm", "ssh_hassh", "ssh_hassh_server", "ssh_ja4ssh"]
+    },
+    "C": {"description": "Fused: exact union of A and B", "union": ["A", "B"]}
+  },
+  "excluded_columns": ["uid", "run_id", "scenario_id", "timestamp_unix", "timestamp_utc", "src_ip", "dst_ip", "src_port", "src_role", "dst_role", "application_protocol", "ground_truth_label", "label_status", "expected_behavior", "expected_rule", "observed_rules", "expected_rule_observed", "notice_count", "tls_policy_version", "ssh_policy_version", "tls_policy_violations", "ssh_policy_violations", "feature_version", "label_version", "cert_fingerprint", "cert_spki_sha256", "cert_issuer_name_sha256", "cert_not_valid_before", "cert_not_valid_after", "ssh_host_key_fingerprint", "ssh_connections_10s"],
+  "unavailable_features": {"retransmission_count": "Not a native count in the current conn.log; do not infer a precise count from history"}
+}

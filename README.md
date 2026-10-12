@@ -1,278 +1,222 @@
-# Topic 4 — Mạng lab, Zeek và bảng sessions CSV
+# Topic 4 — Docker lab tối giản
 
-Thiết kế mở rộng dự kiến với firewall/router ảo, Nginx reverse proxy, Bastion và Web/App/DB nằm trong [TOPOLOGY.md](TOPOLOGY.md). Đây là kế hoạch triển khai; topology đang chạy vẫn là lab mô tả bên dưới.
+Các file thí nghiệm đang dùng và phần cần giữ:
+[experiments/README.md](experiments/README.md).
 
-Bản này bắt đầu lại từ phần mạng. Client kết nối TLS/SSH qua router, Zeek ghi metadata JSON, rồi `scripts/build_sessions.py` ghép log thành bảng CSV dễ đọc.
+## Đọc code theo thứ tự nào?
 
-## Chạy nhanh: từ mạng lab đến CSV
+`scripts/` chỉ chứa các lệnh chạy. Code nội bộ thu dữ liệu nằm trong
+`src/data_generation/`, code xử lý feature nằm trong `src/features/`.
 
-Chạy các lệnh sau trong PowerShell, khi Docker Desktop đã bật Linux containers và máy đã có Python 3:
+| Lệnh chính | Vai trò |
+|---|---|
+| `scripts/run_dataset_campaign.py` | Thu hoặc resume dataset |
+| `scripts/audit_custom_dataset.py` | Kiểm tra dataset |
+| `scripts/prepare_custom_ablation.py` | Chuẩn bị subset và split |
+| `scripts/run_model_baselines.py` | Lệnh train RF/XGBoost/LightGBM, gọi `src/models/baselines.py` |
+| `scripts/run_ablation.py` | A/B/C × RF/XGBoost/LightGBM, dùng chung preprocessing/train/CV của baseline |
+| `scripts/dataset_tools.py` | Công cụ export thủ công; bình thường không cần chạy |
+| `scripts/start-lab.ps1`, `scripts/trust-lab-hosts.ps1` | Khởi động lab và chuẩn bị SSH trust |
+
+Code hỗ trợ gồm 5 module: `generator.py` điều phối một round và khai báo profile,
+`runtime.py` gọi Docker và hiển thị tiến độ, `scenarios.py` thực hiện scenario
+TLS/SSH, `attacks.py` thực hiện các hành vi attack trong lab, `output.py` công bố CSV.
+Hai công cụ export cũ được thay bằng:
 
 ```powershell
-cd F:\Master_projects\Topic4
-docker compose up -d --build --wait
-.\test-lab.ps1
-python scripts/build_sessions.py
-Import-Csv .\data\sessions.csv | Format-Table application_protocol,src_ip,dst_ip,tls_cipher,ssh_kex
+.\.venv\Scripts\python.exe scripts/dataset_tools.py training --dataset <campaign_dataset_directory>
+.\.venv\Scripts\python.exe scripts/dataset_tools.py extended --run <completed_round_directory>
+.\.venv\Scripts\python.exe scripts/dataset_tools.py extended --validate <extended_directory>
 ```
 
-`test-lab.ps1` tạo traffic thử nghiệm thật trong lab và restart Zeek để flush log. `build_sessions.py` đọc log có sẵn, không tạo traffic và không chạy model AI. Muốn CSV cập nhật sau lần thử mới, chạy lại script Python; hiện chưa có scheduler hay backend cập nhật tự động.
+## So sánh baseline Random Forest / XGBoost / LightGBM
 
-## Tình trạng hiện tại — 05/10/2026
+Dùng cùng subset custom 30.000 session và split theo thời gian đã kiểm tra.
+Mặc định dùng feature Fused, seed 42, ba fold CV theo thời gian trên train;
+final test giữ riêng. Tham số cố định ở đầu
+`src/models/baselines.py`, không cần JSON cấu hình:
 
-Project đã có **bước 1: mạng lab và thu thập metadata**, cùng **bước 2: ghép log thành CSV**. Kiểm tra Docker ngày 05/10/2026 khi dựng lab cho thấy cả 7 services đang chạy; router và Zeek healthy. Zeek trong container là phiên bản **9.0.0**. Chỉ router và Zeek có healthcheck trong Compose, nên trạng thái running của các server không tự chứng minh dịch vụ đã negotiate thành công.
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r experiments/requirements-baselines.txt
+.\.venv\Scripts\python.exe scripts/run_model_baselines.py --train
+```
 
-| Thành phần | Hiện đã có gì? |
+Thêm `--groups A B C` để chạy cả ba nhóm feature. Output tại
+`experiments/results/model_baselines/`. Hướng dẫn dễ đọc:
+[MODEL_BASELINES.md](report/MODEL_BASELINES.md).
+
+## Kiểm tra dataset đã thu và chạy A/B/C
+
+Code mới đọc CSV `lab-training-v2` của campaign `custom_data_v1`. Audit dữ liệu,
+chuẩn bị subset 30.000 session và chạy ba thí nghiệm L3/L4, TLS/SSH, Fused:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/audit_custom_dataset.py
+.\.venv\Scripts\python.exe scripts/prepare_custom_ablation.py
+.\.venv\Scripts\python.exe scripts/run_ablation.py --train
+```
+
+Subset đã chuẩn bị thì không cần chạy lại bước prepare. Các lệnh và cách đọc
+report nằm trong [CUSTOM_DATASET_AUDIT_ABLATION.md](report/CUSTOM_DATASET_AUDIT_ABLATION.md).
+
+## Custom dataset có thêm attack — profile v3
+
+Mặc định campaign mới dùng `experiments/campaign_attack_v3.json`: mục tiêu tối thiểu
+30.000 session gồm 27.000 benign (90%), 900 misconfiguration (3%), 900 policy
+violation (3%) và 1.200 attack (4%). Giữ thêm benign thật đã thu nên tổng có thể
+lớn hơn 30.000; tỷ lệ thực tế được ghi trong summary. Mỗi round tối đa hai case
+bất thường, nghỉ 20–60 giây với background vẫn chạy. Đây là thiết kế lab,
+không phải tỷ lệ đo được ngoài doanh nghiệp. Quota attack chia chín nhóm, dùng OpenSSH password auth, Nmap,
+curl TLS timing/burst, ProxyJump và Nginx interception fixture trong lab.
+Timestamp thật, không hẹn giờ; resume giữ config cũ.
+
+Hướng dẫn build client, smoke, chạy/resume và các giới hạn:
+[CUSTOM_DATASET_ATTACKS.md](report/CUSTOM_DATASET_ATTACKS.md).
+
+Lab chạy **7 container chính**; phần Web đã tách thành frontend, backend và DB:
+
+| Service | Chức năng |
 | --- | --- |
-| Mạng | Ba Docker bridge: clients, servers và monitor dành riêng cho bản sao traffic |
-| TLS | Hai Nginx/OpenSSL servers: modern và weak |
-| SSH | Hai OpenSSH servers: modern và weak |
-| Sensor | Zeek ở namespace riêng, nhận traffic mirror trên mirror0 qua VXLAN |
-| Log | Đã có dữ liệu trong conn, ssl, x509 và ssh logs |
-| Bảng session | Script Python ghép các log và tạo `data/sessions.csv`, một dòng mỗi connection UID |
-| Kiểm tra lab | `test-lab.ps1` đã chạy thành công ngày 05/10/2026 khi dựng bản mới |
+| `web-frontend` | Nginx phục vụ giao diện, chuyển API requests tới Backend |
+| `backend` | Python API, kết nối tới DB |
+| `db` | PostgreSQL, chỉ nhận kết nối DB từ Backend |
+| `proxy` | Một Nginx reverse proxy; đổi modern/weak TLS để làm các case |
+| `bastion` | SSH jump host, pull image LinuxServer OpenSSH có sẵn |
+| `router` | Alpine với NAT, IP forwarding và firewall |
+| `zeek` | Một sensor ghi metadata TLS/SSH |
 
-**Chưa triển khai trong bản mới:** HMAC-token hóa, custom packet features, Rules, XGBoost, Isolation Forest, fusion, ATT&CK mapping, agent và dashboard. Đây là các bước phát triển tiếp theo. Mã nguồn/dataset của bản cũ nằm trong thư mục backup riêng, không được bản lab mới nạp.
+Proxy, Bastion, Router và Zeek vẫn mỗi loại một container. Client nằm trong profile `test`, chỉ được tạo tạm khi thử nghiệm. [TOPOLOGY.md](report/TOPOLOGY.md) mô tả mạng; [README_PLAN.md](report/README_PLAN.md) mô tả các bước hoàn thiện đề tài.
 
-## Mạng hoạt động thế nào?
+Luồng ứng dụng: **Client → Proxy → Frontend → Backend → DB**. Trong `docker/web/`, code giao diện nằm ở `frontend/`, API ở `backend/`, cấu hình PostgreSQL ở `db/`. Dockerfile có ba build targets; không gom ba dịch vụ trong một container.
 
-```mermaid
-flowchart LR
-    C["Client<br/>172.30.10.10"] --> R["Router<br/>172.30.10.254 / 172.30.20.254"]
-    R --> T1["TLS modern<br/>172.30.20.10:443"]
-    R --> T2["TLS weak<br/>172.30.20.11:443"]
-    R --> S1["SSH modern<br/>172.30.20.20:22"]
-    R --> S2["SSH weak<br/>172.30.20.21:22"]
-    R -. "tc mirror ingress + egress eth0" .-> M["mirror0 → VXLAN<br/>mạng monitor 172.30.99.0/24"]
-    M -. "bản sao Ethernet" .-> Z["Zeek riêng<br/>capture mirror0"]
-    Z --> L["logs/<br/>conn, ssl, x509, ssh"]
-```
+Project đã sắp xếp theo cấu trúc đề tài: `data/`, `sensors/`, `src/`, `experiments/`, `tests/`, `docker/`, `report/`. Xem [STRUCTURE.md](report/STRUCTURE.md) để biết vị trí từng phần và các lệnh sau khi chuyển thư mục. `compose.yaml` giữ ở root để tiếp tục dùng `docker compose`.
 
-Có 7 container: một client, một router, bốn test servers và một sensor Zeek. Router và Zeek có network namespace riêng. Router chuyển tiếp và source NAT traffic phía server; đồng thời sao chép ingress và egress của interface phía client (eth0). Vì vậy bản sao vẫn chứa IP nguồn/đích phía client trước source NAT hoặc sau khi reverse NAT. Mạng monitor chỉ kết nối router và sensor, không dùng Open vSwitch.
+Zeek metadata-only đã có JSON `conn/ssl/x509/ssh/notice/weird`, rule TLS/SSH, JA3/JA4/HASSH/JA4SSH, SPKI hash và field allowlist. Xem [hướng dẫn Zeek](report/ZEEK_METADATA.md) và [mapping feature](report/ZEEK_FEATURE_MAPPING.md). Kiểm tra bằng `python tests/test_zeek_metadata.py`. `build_sessions.py` chạy privacy validator trước khi xuất CSV; policy result trong CSV là evidence, không tự dùng làm input ML dự đoán cùng nhãn.
 
-| Compose service | IP/port | Nhiệm vụ |
-| --- | --- | --- |
-| `client` | `172.30.10.10` | Tạo traffic bằng curl/SSH |
-| `router` | `172.30.10.254`, `172.30.20.254`, `172.30.99.10` | Routing, firewall, NAT và gửi bản sao |
-| `tls-modern` | `172.30.20.10:443` | TLS profile modern |
-| `tls-weak` | `172.30.20.11:443` | TLS profile weak |
-| `ssh-modern` | `172.30.20.20:22` | SSH profile baseline |
-| `ssh-weak` | `172.30.20.21:22` | SSH profile alternate |
-| `zeek` | `172.30.99.20` trên mạng monitor | Nhận bản sao và ghi metadata |
+Custom lab dataset: `python -m src.data_generation.generator --quick` chạy background + 10 scenario, ghi manifest và xuất labeled CSV có schema/version/checksum, tách session chưa rõ nhãn vào quarantine. Thêm `--parquet` nếu đã cài `experiments/requirements-dataset.txt`. Xem [CUSTOM_DATASET_ATTACKS.md](report/CUSTOM_DATASET_ATTACKS.md); regression test: `python tests/test_custom_dataset.py`. Final validator: `python data/schemas/validate_zeek_metadata.py --dataset <run_directory>`.
 
-Router hiện là **Linux Alpine**, không phải vrnetlab. Nginx hiện là TLS test endpoint, chưa phải reverse proxy cho backend. Bastion, Web/App/DB và dashboard chưa được triển khai.
+Campaign mới: `python scripts/run_dataset_campaign.py` chỉ preview attack v3; thêm `--collect --max-runs 1 --simple-output` để thu một round lúc rảnh với output gọn. Hai file sử dụng là `dataset.csv` (feature + ground-truth label) và `scenario_manifest.csv`; checkpoint/log kiểm tra nằm trong `.internal` của campaign. CSV cập nhật sau mỗi round thành công, không tạo bản sample/split hay manifest riêng từng scenario. Chế độ gọn không dùng `--parquet`. Xem [CUSTOM_DATASET_ATTACKS.md](report/CUSTOM_DATASET_ATTACKS.md). Lịch v1 cũ: [CUSTOM_DATASET_ATTACKS.md](report/CUSTOM_DATASET_ATTACKS.md), cần truyền config v1 rõ ràng khi tạo mới.
 
-Luồng dữ liệu hiện tại là: **client tạo kết nối → router chuyển traffic → server trả lời → Zeek ghi metadata vào `logs/` → chạy `scripts/build_sessions.py` → `data/sessions.csv`**. Chạy script thủ công khi cần cập nhật bảng.
+Ablation A/B/C đã có bộ tính feature, config và runner offline. Xem mục 8 bên dưới; không cần thêm container. Code đã kiểm thử bằng fixture riêng, chưa đồng nghĩa có kết quả nghiên cứu trên campaign thật.
 
-### Theo dõi luồng qua từng file
+## 1. Build và chạy
 
-| Bước | File phụ trách | Điều xảy ra |
-| --- | --- | --- |
-| 1. Dựng lab | `compose.yaml` | Tạo 7 containers và 3 networks, gắn IP/interface, mount thư mục log |
-| 2. Cho client đi đến server | `lab/client/entrypoint.sh`, `lab/router/entrypoint.sh` | Cấu hình route phía client; router thiết lập firewall/NAT và gọi script mirror |
-| 3. Sao chép traffic | `lab/router/mirror.sh` | Mirror hai chiều của eth0, gửi bản sao qua VXLAN đến sensor |
-| 4. Bắt bản sao | `zeek/entrypoint.sh` | Lưu lại log cũ, tạo interface nhận mirror0, khởi chạy Zeek |
-| 5. Ghi metadata | `zeek/local.zeek` | Cho phép 4 log streams và ghi JSON, rotation mỗi phút |
-| 6. Ghép session | `scripts/build_sessions.py` | Đọc conn/ssl/ssh/x509, nối dữ liệu thành một dòng mỗi conn UID |
-| 7. Xem kết quả | `data/sessions.csv` | Snapshot metadata để xem bằng Excel/PowerShell, chưa có prediction hay nhãn attack |
-
-Hai việc độc lập: routing chuyển **packet gốc** đến server; mirror chuyển **bản sao** đến Zeek. Zeek không nằm trên đường chuyển tiếp bắt buộc của request/response. Tuy vậy Compose hiện chờ cấu hình mirror của router đạt healthcheck trước khi khởi động các dịch vụ phụ thuộc.
-
-## Mirror hoạt động thế nào?
-
-1. `lab/router/mirror.sh` tạo interface VXLAN `mirror0` và hai bộ lọc `tc` trên `eth0`. Ingress dùng priority 10, egress dùng priority 20, mỗi chiều có đúng một mirror action.
-2. `action mirred egress mirror dev mirror0` tạo bản sao packet. Packet gốc tiếp tục routing/firewall/NAT như bình thường; đây là mirror, không phải redirect.
-3. Bản sao Ethernet được đóng gói VXLAN (VNI 42, UDP 4789) và gửi qua `eth2` của router đến Zeek trên mạng monitor. Mạng này có MTU 1600 để chứa overhead tunnel; `mirror0` dùng MTU 1500.
-4. `zeek/entrypoint.sh` tạo đầu nhận VXLAN, giải đóng gói rồi chạy Zeek capture `mirror0`. Zeek không capture eth0 của router và không dùng `network_mode: service:router` nữa. Interface `mirror0` không có IPv4 address được cấu hình.
-
-VXLAN được chọn vì phép thử trên kernel Docker Desktop/WSL hiện tại hỗ trợ VXLAN, nhưng không tạo được GRETAP. Bộ lọc dùng `u32` vì classifier `matchall` không hoạt động trong phép thử. Việc này không đòi hỏi router ảo vrnetlab.
-
-Đường mirror vận chuyển bản sao đầy đủ của packet, gồm cả encrypted payload trong bộ nhớ; output của Zeek vẫn giới hạn metadata, không lưu payload/PCAP hay giải mã TLS. Mirror này chỉ bao phủ traffic đi qua eth0 phía client. Traffic giữa hai server trên cùng mạng servers không đi qua eth0, nên cần thêm điểm mirror nếu mở rộng topology để quan sát traffic đó.
-
-Kiểm tra cấu hình và bộ đếm:
+Bật Docker Desktop ở chế độ Linux containers, rồi mở PowerShell:
 
 ```powershell
-docker compose exec -T router tc -s filter show dev eth0 ingress
-docker compose exec -T router tc -s filter show dev eth0 egress
-docker compose exec -T zeek ip -s link show mirror0
-```
-
-Sau khi tạo traffic, mỗi chiều có một action `Mirror to device mirror0`; counter `Sent ... pkt` và RX packets của sensor tăng. Restart Zeek tạo lại interface sensor nên RX counter được reset. Tài liệu lệnh: [tc-mirred](https://man7.org/linux/man-pages/man8/tc-mirred.8.html).
-
-## Mỗi file dùng làm gì?
-
-```text
-Topic4/
-├── compose.yaml         # Khai báo 7 container, IP và kết nối mạng
-├── lab/
-│   ├── client/          # Dockerfile + entrypoint.sh: công cụ curl/SSH và route
-│   ├── router/          # Dockerfile, entrypoint.sh, mirror.sh: routing/NAT/mirror
-│   ├── tls-server/      # Nginx/OpenSSL: Dockerfile, entrypoint, 2 file .conf
-│   └── ssh-server/      # OpenSSH: Dockerfile, entrypoint, 2 file sshd_config.*
-├── zeek/
-│   ├── Dockerfile       # Base Zeek pin digest + iproute2 cho tunnel
-│   ├── entrypoint.sh    # Giữ log cũ, tạo đầu nhận VXLAN, capture mirror0
-│   └── local.zeek       # Bật JSON và chỉ cho ghi conn/ssl/x509/ssh
-├── logs/                # Zeek tạo log tại đây; .gitkeep giữ thư mục rỗng
-├── scripts/
-│   └── build_sessions.py # Ghép JSON logs theo UID, xuất bảng CSV
-├── data/
-│   └── sessions.csv      # Bảng session được script tạo từ log thực tế
-├── test-lab.ps1         # Sinh traffic và kiểm tra cả bốn endpoint trong log
-├── .gitignore           # Không đưa log thực nghiệm vào Git
-├── TOPOLOGY.md          # Thiết kế mở rộng dự kiến, không phải topology đang chạy
-└── README.md
-```
-
-Mỗi `Dockerfile` mô tả cách tạo image. Mỗi `entrypoint.sh` chạy khi container khởi động. TLS dùng `modern.conf` hoặc `alternate.conf`; SSH dùng `sshd_config.baseline` hoặc `sshd_config.alternate`. Trong Compose, tên `weak` chọn profile `alternate`.
-
-## File `zeek/local.zeek` làm gì?
-
-File này được nạp bởi `zeek/entrypoint.sh` với lệnh `zeek -C -i mirror0 /config/local.zeek`. Thư mục `zeek/` trên máy được mount read-only vào `/config`; thư mục `logs/` được mount vào `/logs` để nhận dữ liệu sensor ghi. Entry point được COPY vào image khi build, nên sửa entrypoint cần build lại service Zeek.
-
-| Cấu hình | Tác dụng |
-| --- | --- |
-| `@load policy/tuning/json-logs` | Mỗi dòng log là một JSON object |
-| `allowed_logs` | Khai báo bốn loại record được ghi: Conn, SSL, X509, SSH |
-| `hook Log::log_stream_policy` | Ngăn ghi record thuộc log stream ngoài danh sách trên |
-| `Log::default_rotation_interval = 1min` | Xoay vòng log mỗi phút |
-
-`local.zeek` hiện thiết lập cách ghi metadata; chưa có custom feature aggregation hay detection rules. Dòng comment cuối file mô tả việc không cấu hình extraction/PCAP/decryption; comment tự nó không thực thi thao tác tắt tính năng. `-C` trong command bỏ qua kiểm tra checksum, phục vụ capture trên mạng ảo.
-
-## 1. Khởi động
-
-Cần Docker Desktop chạy Linux containers. Mở PowerShell:
-
-```powershell
-cd F:\Master_projects\Topic4
-docker compose up -d --build --wait
+cd D:\NT2205.11.CH-Project
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-lab.ps1
 docker compose ps
 ```
 
-Kết quả mong đợi: 7 services đang chạy, router và Zeek có trạng thái healthy. Phiên bản Compose phải hỗ trợ `interface_name`.
+Script tạo key bằng một client tạm rồi gỡ client, sau đó build/pull và khởi động 7 services. Bastion pull image trực tiếp, không build Dockerfile riêng. Frontend/Backend/DB và Bastion chỉ nhận public key; private key giữ ở client.
 
-## 2. Tạo traffic và xem phản hồi
-
-TLS modern:
+Chạy script start cho lần đầu để public key tồn tại trước khi các SSH servers khởi động. Các lần sau có thể dùng:
 
 ```powershell
-docker compose exec -T client curl -sk --tls-max 1.2 https://172.30.20.10/
+docker compose up -d --build --wait
 ```
 
-TLS weak:
+Kết quả mong đợi: `router`, `web-frontend`, `backend`, `db`, `proxy`, `bastion`, `zeek` đều healthy. Proxy publish HTTPS tại `127.0.0.1:8443` để mở UI trên máy Windows.
 
-```powershell
-docker compose exec -T client curl -sk --tls-max 1.2 --ciphers 'AES128-SHA:@SECLEVEL=0' https://172.30.20.11/
-```
+### Mở giao diện trên trình duyệt
 
-Mỗi lệnh trả JSON chứa profile và `status: ok`. `-k` chấp nhận chứng chỉ self-signed của lab. Dùng TLS 1.2 ở bước này để sensor đọc được certificate handshake; TLS 1.3 mã hóa phần certificate.
+Mở **https://localhost:8443/**. Certificate tự ký của lab sẽ tạo cảnh báo; chọn **Nâng cao / Advanced → Tiếp tục / Proceed** cho địa chỉ này. Trang hiện cửa hàng **Nook** với 6 sản phẩm đồ công nghệ. Có tìm kiếm, lọc danh mục, giỏ hàng và đặt đơn thử nghiệm.
 
-SSH modern:
+1. Bấm `+` trên sản phẩm để thêm vào giỏ.
+2. Mở **Giỏ hàng**, tăng/giảm số lượng hoặc bỏ sản phẩm. Giỏ được giữ trong trình duyệt khi tải lại trang.
+3. Bấm **Đặt hàng thử nghiệm**; trang hiện mã đơn và tổng tiền. Đơn và tồn kho được lưu trong PostgreSQL.
 
-```powershell
-docker compose exec client ssh -o StrictHostKeyChecking=no labuser@172.30.20.20
-```
+Backend tính giá từ DB, kiểm tra tồn kho và lưu đơn trong một transaction; gửi lại cùng mã yêu cầu không tạo hai đơn. Mỗi sản phẩm tối đa 10 món/đơn. Đây là cửa hàng demo, không có đăng nhập/thanh toán thật và không thu tên, địa chỉ hay thông tin thanh toán.
 
-Tài khoản thử nghiệm: `labuser`, mật khẩu `topic4-lab-only`. Gõ `exit` để kết thúc SSH.
-
-## 3. Kiểm tra tự động
-
-```powershell
-.\test-lab.ps1
-```
-
-Script kiểm tra router và sensor có namespace riêng, mỗi chiều có đúng một mirror action; gửi hai TLS requests, mở hai SSH handshakes bằng chế độ không nhập mật khẩu, kiểm tra sensor RX packets, rồi restart Zeek để flush connection logs. SSH bị từ chối đăng nhập là kết quả dự kiến của kiểm tra handshake; script không kiểm tra đăng nhập thành công. Restart Zeek làm gián đoạn capture ngắn, chỉ dùng lúc test lab.
-
-## 4. Đọc log
-
-```powershell
-Get-ChildItem .\logs
-Get-Content .\logs\conn*.log | Select-Object -Last 3
-Get-Content .\logs\ssl*.log | Select-Object -Last 3
-Get-Content .\logs\ssh*.log | Select-Object -Last 3
-```
-
-| Log | Bạn xem được gì? |
+| API | Chức năng |
 | --- | --- |
-| `conn*.log` | IP/port nguồn–đích, protocol, thời gian, số byte/packet |
-| `ssl*.log` | TLS version, cipher, thông tin handshake |
-| `x509*.log` | Metadata certificate khi sensor quan sát được |
-| `ssh*.log` | SSH banner và thuật toán handshake quan sát được |
+| `GET /api/products` | Danh mục sản phẩm, giá và tồn kho |
+| `POST /api/orders` | Tạo đơn từ `request_id` UUID và `items` gồm `product_id`, `quantity` |
+| `GET /api/orders/{id}` | Xem đơn theo mã UUID |
+| `GET /api/status` | Kiểm tra backend/DB, trả `db_result: 1` |
 
-Zeek rotate log mỗi phút. Một số record chỉ xuất hiện khi connection kết thúc hoặc timeout; log không phải lúc nào cũng có ngay sau khi chạy curl.
-
-**Vì sao có file có ngày và file không có ngày?** `conn.log` là tên cơ bản dùng cho log hiện hành; `ssl.2026-10-05-09-26-31.log` là file được đặt tên kèm timestamp khi xoay vòng/đóng log. Restart sensor cũng có thể tạo ra sự khác nhau giữa các file được đóng và các file tên cơ bản còn trong thư mục. Đừng chỉ dựa vào tên không có ngày để kết luận file đang được ghi: file đó có thể còn lại từ lần chạy trước. Dùng pattern `conn*.log`, `ssl*.log`, `x509*.log`, `ssh*.log` để đọc cả hai kiểu tên.
-
-Trước mỗi lần khởi động sensor, `zeek/entrypoint.sh` chuyển các file tên cơ bản có dữ liệu từ lần chạy trước sang tên có timestamp UTC và hậu tố ngẫu nhiên. Việc này tránh ghi đè conn/ssh logs khi restart; script CSV đọc được các file lưu trữ đó bằng cùng wildcard. Những record đã bị ghi đè trước khi bổ sung cơ chế này không được khôi phục tự động.
-
-Payload logging OFF, không dump PCAP, không TLS decryption. Raw metadata vẫn chứa IP lab. Các server weak chỉ dùng trong lab; Compose không publish cổng dịch vụ ra host. Client network có thể ra ngoài qua Docker, nên đây không phải môi trường air-gap.
-
-## 5. Ghép log thành CSV
-
-Cần Python 3, không cần cài package. Chạy từ project root:
+Trình duyệt dùng profile `modern`. Nếu vừa test TLS weak, đổi lại bằng:
 
 ```powershell
-python scripts/build_sessions.py
-Import-Csv .\data\sessions.csv | Format-Table application_protocol,dst_ip,tls_version,tls_cipher,ssh_kex
+$env:TLS_PROFILE = 'modern'
+docker compose up -d --no-deps --wait proxy
 ```
 
-Mỗi UID trong `conn*.log` trở thành một dòng. Script đọc cả file cơ bản và file có timestamp, loại record trùng UID rồi sắp theo thời gian bắt đầu. `ssl*.log` và `ssh*.log` được nối qua `uid`; `x509*.log` nối qua fingerprint đầu tiên của `cert_chain_fps` trong TLS log. Record handshake chưa có `conn` tương ứng chưa được xuất, nên chạy lại khi Zeek đã ghi connection record.
+Luồng trình duyệt Windows đi thẳng vào Proxy qua cổng Docker publish, sau đó Frontend → Backend → DB. Để sinh metadata TLS trên mirror của Router, dùng client lab và `tests/test_lab.ps1`. Dữ liệu sản phẩm/đơn hàng chỉ ở DB nghiệp vụ; không đưa nội dung API vào dataset/LLM. Zeek vẫn chỉ xuất metadata.
 
-Các nhóm cột:
+## 2. Kiểm tra hoạt động
 
-CSV hiện có **32 cột**, lấy từ log Zeek hiện tại; chưa phải schema NF-UQ v2. Không có các trường packet-level như TTL, TCP flags, cửa sổ TCP hay retransmission vì bản mới chưa triển khai custom analyzer.
-
-| Nhóm | Cột/thông tin |
-| --- | --- |
-| Session | UID, Unix timestamp, UTC timestamp, application protocol |
-| Kết nối | IP/port nguồn–đích, transport protocol, duration, byte/packet theo hướng nguồn–đích, connection state |
-| TLS | Version, cipher, curve, established, resumed |
-| SSH | Version, client/server banner, KEX, cipher, MAC, host-key algorithm, số auth attempts Zeek báo cáo |
-| Certificate | Key type, key bits, signature algorithm, tổng thời hạn hiệu lực theo ngày |
-
-`src_bytes`/`dst_bytes` lấy từ `orig_bytes`/`resp_bytes` của conn log; không phải tổng IP-layer bytes. `cert_validity_days` là toàn bộ thời hạn hiệu lực certificate, không phải số ngày còn lại. Trường không quan sát được để ô trống; giá trị 0/False được giữ nguyên. Script không suy ra attack label từ endpoint weak và không tạo dữ liệu giả.
-
-CSV là snapshot: mỗi lần chạy thành công thay file cũ, không append. CSV hiện giữ IP lab thô; HMAC sẽ là bước riêng. File được ghi UTF-8 BOM để Excel trên Windows đọc được. Nếu JSON chưa ghi xong, script báo file/dòng lỗi; đợi rồi chạy lại. Raw logs được giữ nguyên.
-
-CSV chứa mọi connection có trong `conn*.log`, không chỉ TLS/SSH. Vì vậy có thể gặp dòng không có thông tin handshake hoặc traffic nền như ICMPv6. Ô TLS/SSH/certificate trống có nghĩa là không có field tương ứng để ghép; không tự động có nghĩa là lỗi hay tấn công. Endpoint `weak` cũng không tự động trở thành attack label.
-
-Có thể chọn đường dẫn khác:
+Test cửa hàng (Proxy phải ở profile modern): `python tests/test_shop.py`. Script kiểm tra dữ liệu đầu vào, giá do server tính, gửi lặp đồng thời, tồn kho và đọc lại đơn đã lưu. Mỗi lần chạy tạo một đơn thử gồm 2 món; chạy riêng, không đồng thời đặt đơn trên UI để bộ đếm tồn kho đối chiếu chính xác.
 
 ```powershell
-python scripts/build_sessions.py --logs logs --output data/sessions.csv
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\test_lab.ps1
+python src/features/build_sessions.py
 ```
 
-Kiểm tra lần đầu ngày 05/10/2026: script tạo 4 dòng từ log thật (2 TLS, 2 SSH), giữ đúng cipher/KEX và key length của hai certificate. Đã kiểm tra thêm record trùng UID, ô thiếu dữ liệu, số 0/False và xử lý JSON lỗi bằng fixture trong thư mục tạm; fixture không được đưa vào CSV lab.
+Test tạo một client tạm, kiểm tra frontend/backend/DB, modern/weak TLS trên cùng proxy, SSH qua ProxyJump tới cả ba nodes, ACL và Zeek metadata của traffic Frontend→Backend→DB. Cuối test khôi phục profile TLS ban đầu và gỡ client. Test restart Zeek để flush logs nên gây gián đoạn capture ngắn; chỉ dùng khi kiểm tra lab.
 
-## Dừng và bước tiếp theo
+CSV xuất ra `data/lab_metadata/sessions.csv`, lấy từ `data/lab_metadata/zeek/conn*.log`, `ssl*.log`, `x509*.log`, `ssh*.log`. CSV là snapshot metadata, chưa có token hóa, attack labels hoặc prediction. Các logs cũ trong `data/lab_metadata/zeek/edge` và `data/lab_metadata/zeek/internal` được giữ làm dữ liệu lịch sử; script mặc định không đọc các thư mục con này.
+
+## 3. Đổi case TLS trên một proxy
+
+Không tạo thêm proxy. Trong PowerShell:
 
 ```powershell
+$env:TLS_PROFILE = 'weak'
+docker compose up -d --no-deps --wait proxy
+```
+
+Đổi lại:
+
+```powershell
+$env:TLS_PROFILE = 'modern'
+docker compose up -d --no-deps --wait proxy
+```
+
+Có 6 profiles: `modern`, `weak`, `weak-cert`, `expired-cert`, `wrong-host`, `replaced-cert`, với certificate riêng trong cùng volume; không cần rebuild image để đổi profile. `modern` dùng TLS 1.2/1.3 và ECDHE cho TLS 1.2; `weak` dùng TLS 1.2 RSA/CBC/SHA-1 và RSA certificate 1024-bit. `.env.example` là mẫu nếu muốn lưu lựa chọn vào `.env`. Xem [TLS_PROFILES.md](report/TLS_PROFILES.md) để thử lỗi certificate và chạy `python tests/test_tls_profiles.py`.
+
+## 4. Thử thủ công bằng client tạm
+
+```powershell
+docker compose --profile test up -d client
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\trust-lab-hosts.ps1
+docker compose exec -T client curl -sk https://172.30.20.10/
+docker compose exec -T client curl -sk https://172.30.20.10/api/status
+docker compose exec client ssh web-frontend
+docker compose exec client ssh backend
+docker compose exec client ssh db
+```
+
+`/` trả frontend; `/api/status` trả JSON có `db_result: 1` khi Backend gọi PostgreSQL thành công. SSH tới ba nodes tự đi qua Bastion theo SSH config trong client; `ssh web` vẫn là alias của Frontend. Gõ `exit` để thoát SSH. Các lệnh curl ngắn dùng `-k` cho self-signed lab; test tự động kiểm tra certificate/hostname ở profile modern.
+
+Khi profile weak đang chạy, curl dùng:
+
+```powershell
+docker compose exec -T client curl -sk --tls-max 1.2 --ciphers 'AES128-SHA:@SECLEVEL=0' https://172.30.20.10/api/status
+```
+
+Gỡ client khi xong:
+
+```powershell
+docker compose rm -s -f client
+```
+
+## 5. Giới hạn của bản lab
+
+Frontend, Backend và DB có IP riêng trong Protected: `172.30.30.10`, `.20`, `.30`. Các port ứng dụng là 8080, 8000, 5432; host ACL chỉ cho phép Frontend→Backend và Backend→DB. DB dùng trust authentication giới hạn Backend IP trong lab. Các bảng `shop_products`, `shop_orders`, `shop_order_items` lưu sản phẩm, đơn và chi tiết đơn. Dữ liệu được seed khi backend khởi động lần đầu; restart không reset đơn/tồn kho. Volume `db-data` được giữ khi tách containers.
+
+Một Zeek nhận VXLAN mirrors từ router và egress của ba nodes để quan sát cả traffic cùng subnet. Monitor interfaces của nodes chỉ gửi bản sao; host ACL chặn application traffic trên Monitor. Router không mirror lại ingress Protected để tránh duplicate replies. Sensor chỉ lưu connection metadata cho HTTP/DB, không nội dung ứng dụng.
+
+Zeek ghi metadata `conn/ssl/x509/ssh/notice/weird`. Không PCAP persistence, TLS decryption hoặc HTTP/SSH content logs trong pipeline. Metadata/CSV nguồn vẫn có IP lab; validator, scenario labeling và rule TLS/SSH đã có. Runner ablation loại IP/ID/nhãn/rule outputs khỏi input ML. Pseudonymization HMAC và agent/response chưa hoàn thiện; kết quả ML cần đánh giá trên dataset thật sau khi thu.
+
+## 6. Khi có lỗi và dừng lab
+
+```powershell
+docker compose logs --tail 80 router web-frontend backend db proxy bastion zeek
 docker compose down
 ```
 
-Container/network được gỡ; `logs/` được giữ. Image build cache vẫn còn để khởi động lại nhanh.
+`down` giữ logs và volumes chứa DB/certificates/keys. Khi đổi networks/IP/interface, dùng down/up để tránh attachments cũ. Không cần `down -v` khi chỉ restart lab.
 
-Bước tiếp theo là đối chiếu các dòng CSV với raw logs, rồi thêm Rules kiểm tra TLS/SSH policy. XGBoost L3/L4 và Isolation Forest TLS/SSH sẽ được xây dựng sau khi có dữ liệu và nhãn phù hợp.
-
-Hướng detector dự kiến vẫn là ba nhánh riêng: Rules kiểm tra policy xác định; XGBoost phân tích hành vi L3/L4; Isolation Forest học baseline TLS/SSH benign. Hai nhánh ML độc lập, chỉ kết hợp bằng chứng ở bước fusion sau này. Chưa có nhánh nào trong ba nhánh đó chạy trong bản hiện tại.
-
-## Khi chưa thấy log hoặc CSV mới
-
-| Hiện tượng | Kiểm tra/cách xử lý |
-| --- | --- |
-| Container chưa chạy | `docker compose ps`; xem lỗi bằng `docker compose logs router zeek` |
-| Không có metadata mới | Chạy `test-lab.ps1`; kiểm tra bộ đếm tc và RX mirror0 theo mục Mirror |
-| Có ssl/ssh nhưng chưa có dòng CSV | Chờ conn record được ghi sau khi kết nối đóng/timeout; chạy lại script Python |
-| CSV không đổi sau khi tạo traffic | CSV không tự cập nhật; chạy `python scripts/build_sessions.py` |
-| Certificate trống khi dùng TLS 1.3 | Certificate handshake được mã hóa; không suy ra thông tin sensor không quan sát được |
-| Excel đang mở CSV, script báo không thể ghi file | Đóng file trong Excel rồi chạy lại script |
-
-Sửa `zeek/local.zeek` thì restart Zeek để nạp cấu hình. Sửa Dockerfile hoặc entrypoint đã COPY vào image thì build lại service tương ứng. Không cần xóa raw logs để áp dụng cấu hình mới.
-
-## Các kiểm tra đã thực hiện
-
-Đã chạy `test-lab.ps1` thành công ngày 2026-10-05: cả bốn endpoint có metadata mới trong conn/ssl/ssh; log X.509 cũng có certificate từ traffic TLS test.
-
-Đã kiểm tra thêm sau cấu hình mirror ngày 05/10/2026: namespace router/sensor khác nhau, mỗi chiều eth0 có một mirror action và sensor nhận packet. Phép thử đối chứng tạm tắt mirror vẫn có HTTPS response thành công, nhưng không có conn record của kết nối thử trên Zeek; sau đó đã khôi phục mirror. Đây là phép kiểm tra thực hiện trong lần cấu hình, không tự chạy trong `test-lab.ps1`.
-
-Bản project cũ được lưu riêng tại `F:\Master_projects\Topic4-backup-20261005`, bao gồm dataset, khóa và kết quả cũ. Chỉ các file dựng mạng cơ bản đã được tái sử dụng trong `lab/`.
+Nếu campaign dừng vì SSH timeout: dữ liệu round hoàn thành vẫn giữ, round failed bị loại. Client đã có `init: true`, SSH fixture có timeout trong container và retry tối đa 3 lần; timeout không tự tính là authentication rejection. Kiểm tra `cleanup_passed` trong run_status rồi dùng `--resume`, không tạo lại campaign từ đầu. Xem [CUSTOM_DATASET_ATTACKS.md](report/CUSTOM_DATASET_ATTACKS.md).

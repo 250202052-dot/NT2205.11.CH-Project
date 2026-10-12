@@ -1,0 +1,4 @@
+# Môi trường riêng cho ablation; không đổi dependency của bộ thu traffic.
+scikit-learn==1.9.1
+numpy==2.4.3
+pyarrow==25.0.1

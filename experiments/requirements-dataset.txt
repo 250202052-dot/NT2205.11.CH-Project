@@ -1,0 +1,2 @@
+# Optional typed Parquet export; CSV needs only Python's standard library.
+pyarrow==25.0.1

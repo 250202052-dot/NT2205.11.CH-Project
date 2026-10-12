@@ -1,0 +1,17 @@
+{
+  "dataset_directory": "data/lab_metadata/campaigns/20261007T160605Z_campaign_646959/dataset",
+  "feature_config": "tests/fixtures/legacy_configs/ablation_features.json",
+  "output_directory": "experiments/results/ablation",
+  "labels": ["benign", "misconfiguration", "policy_violation", "attack_behavior"],
+  "seeds": [2205, 42, 2026],
+  "require_all_labels_per_split": true,
+  "require_complete_quota": true,
+  "model": {
+    "name": "random_forest",
+    "n_estimators": 100,
+    "max_depth_candidates": [12, null],
+    "min_samples_leaf": 2,
+    "class_weight": "balanced",
+    "n_jobs": 1
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "schema_version": "lab-generation-v1",
+  "seed": 2205,
+  "warmup_seconds": 8,
+  "cooldown_seconds": 5,
+  "window_seconds": 6,
+  "gap_seconds": 2,
+  "background_http_interval": 1,
+  "background_ssh_interval": 3,
+  "scenario_interval": 1,
+  "brute_force_attempts": 12,
+  "brute_force_interval": 0.4,
+  "scenarios": [
+    "tls_weak_cipher", "tls_weak_key", "tls_expired_cert", "tls_hostname_mismatch",
+    "ssh_weak_kex", "ssh_weak_cipher", "ssh_weak_mac", "ssh_weak_host_key",
+    "ssh_bruteforce_like", "ssh_new_path"
+  ]
+}

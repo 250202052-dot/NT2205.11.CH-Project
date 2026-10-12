@@ -1,11 +1,18 @@
-logs/*
-!logs/.gitkeep
 data/*.csv
 data/*.tmp
+data/lab_metadata/**
+!data/lab_metadata/**/
+!data/lab_metadata/**/.gitkeep
+!data/lab_metadata/**/README.md
+data/public/**
+!data/public/**/
+!data/public/**/.gitkeep
+!data/public/**/README.md
+data/manifests/tls_profiles_*.csv
+data/manifests/custom/
 __pycache__/
 
 # Public datasets and generated artifacts stay local (never upload to GitHub).
-data/public_loaders/
 data/raw/
 data/processed/
 data/archive/
@@ -34,3 +41,7 @@ id_ed25519*
 .venv/
 venv/
 *.pyc
+
+# Generated ML matrices, predictions and experiment results remain local.
+experiments/results/
+/.local-secrets/

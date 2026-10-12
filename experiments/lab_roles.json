@@ -1,0 +1,17 @@
+{
+  "schema_version": "lab-roles-v1",
+  "roles": {
+    "client": ["172.30.10.10"],
+    "proxy": ["172.30.20.10"],
+    "bastion": ["172.30.20.20"],
+    "web-frontend": ["172.30.30.10"],
+    "backend": ["172.30.30.20"],
+    "db": ["172.30.30.30"]
+  },
+  "nat_aliases": [
+    {"ip": "172.30.30.254", "side": "src", "dst_port": 22, "dst_roles": ["web-frontend", "backend", "db"], "role": "bastion"},
+    {"ip": "172.30.30.254", "side": "src", "dst_port": 8080, "dst_roles": ["web-frontend"], "role": "proxy"}
+  ],
+  "baseline_ssh_paths": [["client", "bastion", 2222], ["bastion", "web-frontend", 22]],
+  "notes": "NAT aliases apply only to the specified endpoint/port in this lab; do not generalize router identity. Bastion-to-backend is an allowed network route but is outside this experimental baseline."
+}

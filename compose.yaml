@@ -1,125 +1,170 @@
 name: topic4
-
 services:
   router:
-    build: ./lab/router
+    build: ./docker/router
     cap_add: [NET_ADMIN]
-    sysctls:
-      net.ipv4.ip_forward: "1"
+    sysctls: {net.ipv4.ip_forward: "1"}
     networks:
-      clients:
-        interface_name: eth0
-        ipv4_address: 172.30.10.254
-      servers:
-        interface_name: eth1
-        ipv4_address: 172.30.20.254
-      monitor:
-        interface_name: eth2
-        ipv4_address: 172.30.99.10
+      outside: {interface_name: eth0, ipv4_address: 172.30.10.254}
+      dmz: {interface_name: eth1, ipv4_address: 172.30.20.254}
+      protected: {interface_name: eth2, ipv4_address: 172.30.30.254}
+      monitor: {interface_name: eth3, ipv4_address: 172.30.99.10}
     healthcheck:
-      test: [CMD-SHELL, "iptables -C FORWARD -s 172.30.10.0/24 -d 172.30.20.10/32 -p tcp --dport 443 -j ACCEPT && tc filter show dev eth0 ingress | grep -q mirror0 && tc filter show dev eth0 egress | grep -q mirror0"]
-      interval: 2s
-      timeout: 2s
+      test: [CMD-SHELL, "ip -4 addr show dev eth0 | grep -q 172.30.10.254/24 && iptables -C FORWARD -s 172.30.10.10 -d 172.30.20.20 -p tcp --dport 2222 -j ACCEPT && tc filter show dev eth0 ingress | grep -q mirror0"]
+      interval: 3s
+      timeout: 3s
       retries: 20
-
-  client:
-    build: ./lab/client
-    cap_add: [NET_ADMIN]
-    depends_on:
-      router:
-        condition: service_healthy
-    networks:
-      clients:
-        ipv4_address: 172.30.10.10
-
-  tls-modern:
+  web-frontend:
     build:
-      context: ./lab/tls-server
-      args:
-        TLS_PROFILE: modern
+      context: ./docker/web
+      target: frontend
     cap_add: [NET_ADMIN]
+    environment: {MIRROR_LOCAL: 172.30.99.31}
     depends_on:
-      router:
-        condition: service_healthy
+      router: {condition: service_healthy}
+      backend: {condition: service_healthy}
+    volumes:
+      - admin-public:/public:ro
+      - web-hostkeys:/etc/ssh/hostkeys
     networks:
-      servers:
-        ipv4_address: 172.30.20.10
-
-  tls-weak:
+      protected: {interface_name: eth0, ipv4_address: 172.30.30.10}
+      monitor: {interface_name: eth1, ipv4_address: 172.30.99.31}
+    healthcheck:
+      test: [CMD-SHELL, "curl -fsS --max-time 2 http://127.0.0.1:8080/api/status >/dev/null && nc -z 127.0.0.1 22"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  backend:
     build:
-      context: ./lab/tls-server
-      args:
-        TLS_PROFILE: alternate
+      context: ./docker/web
+      target: backend
     cap_add: [NET_ADMIN]
+    environment: {MIRROR_LOCAL: 172.30.99.32, DB_HOST: 172.30.30.30}
     depends_on:
-      router:
-        condition: service_healthy
+      router: {condition: service_healthy}
+      db: {condition: service_healthy}
+    volumes:
+      - admin-public:/public:ro
+      - backend-hostkeys:/etc/ssh/hostkeys
     networks:
-      servers:
-        ipv4_address: 172.30.20.11
-
-  ssh-modern:
+      protected: {interface_name: eth0, ipv4_address: 172.30.30.20}
+      monitor: {interface_name: eth1, ipv4_address: 172.30.99.32}
+    healthcheck:
+      test: [CMD-SHELL, "curl -fsS --max-time 2 http://127.0.0.1:8000/api/status >/dev/null && nc -z 127.0.0.1 22"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  db:
     build:
-      context: ./lab/ssh-server
-      args:
-        SSH_PROFILE: baseline
+      context: ./docker/web
+      target: db
     cap_add: [NET_ADMIN]
+    environment: {MIRROR_LOCAL: 172.30.99.33}
     depends_on:
-      router:
-        condition: service_healthy
+      router: {condition: service_healthy}
+    volumes:
+      - admin-public:/public:ro
+      - db-hostkeys:/etc/ssh/hostkeys
+      - db-data:/var/lib/postgresql/data
     networks:
-      servers:
-        ipv4_address: 172.30.20.20
-
-  ssh-weak:
-    build:
-      context: ./lab/ssh-server
-      args:
-        SSH_PROFILE: alternate
+      protected: {interface_name: eth0, ipv4_address: 172.30.30.30}
+      monitor: {interface_name: eth1, ipv4_address: 172.30.99.33}
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -h 172.30.30.30 -p 5432 >/dev/null && nc -z 127.0.0.1 22"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  proxy:
+    build: ./docker/proxy
     cap_add: [NET_ADMIN]
+    ports:
+      - "127.0.0.1:8443:443"
+    environment: {TLS_PROFILE: "${TLS_PROFILE:-modern}"}
     depends_on:
-      router:
-        condition: service_healthy
+      router: {condition: service_healthy}
+      web-frontend: {condition: service_healthy}
+    volumes:
+      - proxy-tls:/etc/nginx/tls
     networks:
-      servers:
-        ipv4_address: 172.30.20.21
-
+      dmz: {interface_name: eth0, ipv4_address: 172.30.20.10}
+    healthcheck:
+      test: [CMD-SHELL, "curl -fsSk --max-time 2 --tls-max 1.2 --ciphers 'ALL:@SECLEVEL=0' https://127.0.0.1/health >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  bastion:
+    image: lscr.io/linuxserver/openssh-server:latest@sha256:46f115de7c251558297e7e87566fc3fc08544b63e55502b5cf294454db5d29d1
+    cap_add: [NET_ADMIN]
+    environment:
+      USER_NAME: labadmin
+      PASSWORD_ACCESS: "false"
+      SUDO_ACCESS: "false"
+      PUBLIC_KEY_FILE: /public/admin.pub
+      PUID: "1000"
+      PGID: "1000"
+    depends_on:
+      router: {condition: service_healthy}
+    volumes:
+      - admin-public:/public:ro
+      - bastion-config:/config
+      - ./docker/bastion/setup.sh:/custom-cont-init.d/50-topic4-bastion:ro
+    networks:
+      dmz: {interface_name: eth0, ipv4_address: 172.30.20.20}
+    healthcheck:
+      test: [CMD-SHELL, "/usr/sbin/sshd.pam -t -f /config/sshd/sshd_config -h /config/ssh_host_keys/ssh_host_ed25519_key && nc -z 127.0.0.1 2222"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
   zeek:
-    # The Dockerfile pins Zeek and adds iproute2 for the receiving tunnel.
-    build: ./zeek
-    networks:
-      monitor:
-        interface_name: eth0
-        ipv4_address: 172.30.99.20
+    build: ./docker/zeek
+    # False: baseline hien tai. True: them packet_metadata/tls_extensions.
+    environment: {ZEEK_EXTENDED_METADATA: "${ZEEK_EXTENDED_METADATA:-false}"}
     cap_add: [NET_RAW, NET_ADMIN]
     depends_on:
-      router:
-        condition: service_healthy
+      router: {condition: service_healthy}
     working_dir: /logs
     volumes:
-      - ./zeek:/config:ro
-      - ./logs:/logs
+      - ./sensors/zeek:/config:ro
+      - ./data/lab_metadata/zeek:/logs
+    networks:
+      monitor: {interface_name: eth0, ipv4_address: 172.30.99.20}
     healthcheck:
       test: [CMD-SHELL, "pgrep -x zeek >/dev/null && ip link show mirror0 >/dev/null"]
-      interval: 2s
-      timeout: 2s
-      retries: 20
-
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  # Only started explicitly for tests, never by the default up command.
+  client:
+    # Reap orphaned ProxyJump/SSH children during long dataset campaigns.
+    init: true
+    profiles: [test]
+    build: ./docker/client
+    cap_add: [NET_ADMIN]
+    depends_on:
+      router: {condition: service_healthy}
+    volumes:
+      - admin-key:/admin
+      - admin-public:/public
+    networks:
+      outside: {interface_name: eth0, ipv4_address: 172.30.10.10}
 networks:
-  clients:
-    ipam:
-      config:
-        - subnet: 172.30.10.0/24
-  servers:
+  outside:
+    ipam: {config: [{subnet: 172.30.10.0/24}]}
+  dmz:
+    ipam: {config: [{subnet: 172.30.20.0/24}]}
+  protected:
     internal: true
-    ipam:
-      config:
-        - subnet: 172.30.20.0/24
+    ipam: {config: [{subnet: 172.30.30.0/24}]}
   monitor:
-    # Extra MTU accommodates VXLAN headers without truncating original frames.
     internal: true
-    driver_opts:
-      com.docker.network.driver.mtu: "1600"
-    ipam:
-      config:
-        - subnet: 172.30.99.0/24
+    driver_opts: {com.docker.network.driver.mtu: "1600"}
+    ipam: {config: [{subnet: 172.30.99.0/24}]}
+volumes:
+  admin-key:
+  admin-public:
+  bastion-config:
+  web-hostkeys:
+  backend-hostkeys:
+  db-hostkeys:
+  db-data:
+  proxy-tls:

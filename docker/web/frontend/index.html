@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#244f42">
+  <title>Nook — Một góc làm việc, nhiều cảm hứng</title>
+  <link rel="stylesheet" href="/styles.css"><script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="announcement">Một góc làm việc tốt hơn, bắt đầu từ những điều nhỏ. <span>Miễn phí giao hàng cho mọi đơn thử nghiệm ↗</span></div>
+  <header class="header wrap">
+    <a class="brand" href="/" aria-label="Nook trang chủ">nook<span>✳</span></a>
+    <nav aria-label="Điều hướng chính"><a href="#shop">Cửa hàng</a><a href="#about">Về Nook</a></nav>
+    <button class="cart-button" id="open-cart" aria-haspopup="dialog">Giỏ hàng <span id="cart-count">0</span></button>
+  </header>
+  <main>
+    <section class="hero wrap">
+      <div class="hero-copy"><p class="eyebrow">THIẾT KẾ GỌN GÀNG. MỖI NGÀY DỄ CHỊU.</p>
+        <h1>Một góc nhỏ.<br><em>Nhiều cảm hứng.</em></h1>
+        <p class="hero-description">Những món đồ công nghệ vừa đủ đẹp, vừa đủ tiện — để bạn tập trung vào điều mình yêu thích.</p>
+        <a class="primary-link" href="#shop">Khám phá bộ sưu tập <span>↗</span></a>
+        <div class="hero-notes"><span>◎ Chọn lọc kỹ càng</span><span>↺ Đổi trả dễ dàng</span></div>
+      </div>
+      <div class="hero-art" aria-label="Minh họa góc bàn làm việc">
+        <div class="art-label">THE EVERYDAY COLLECTION <span>01 / 06</span></div>
+        <div class="desk-scene"><div class="scene-orbit"></div><div class="scene-lamp"></div><div class="scene-book"></div><div class="scene-keyboard"></div><div class="scene-mouse"></div><div class="scene-cup"></div></div>
+        <div class="art-caption"><span>Ít hơn. Nhưng tốt hơn.</span><span>✳</span></div>
+      </div>
+    </section>
+    <div class="benefits wrap"><span>✦ Thiết kế cho mỗi ngày</span><span>◇ Chất lượng được chọn lọc</span><span>↗ Giao hàng miễn phí trong demo</span></div>
+    <section class="shop wrap" id="shop">
+      <div class="section-heading"><div><p class="eyebrow">TÌM MÓN ĐỒ CỦA BẠN</p><h2>Đẹp trên bàn. Tiện trong tay.</h2></div><span id="product-count">Đang tải bộ sưu tập…</span></div>
+      <div class="shop-tools"><div class="categories" id="categories" aria-label="Lọc danh mục"></div><label class="search"><span>⌕</span><input id="search" type="search" placeholder="Tìm sản phẩm…" aria-label="Tìm sản phẩm"></label></div>
+      <p id="catalog-message" class="catalog-message" role="status"></p>
+      <div class="product-grid" id="products" aria-busy="true"></div>
+    </section>
+    <section class="about wrap" id="about"><span class="about-symbol">✳</span><div><p class="eyebrow">MỘT CHÚT VỀ NOOK</p><h2>Không gian nhỏ,<br>trải nghiệm lớn.</h2></div><p>Chúng mình tin một góc làm việc dễ chịu không cần quá nhiều đồ. Chỉ cần những món bạn thật sự muốn dùng, mỗi ngày.<br><br><span class="demo-note">Cửa hàng demo: không thu tiền và không yêu cầu thông tin cá nhân.</span></p></section>
+  </main>
+  <footer class="wrap"><a class="brand" href="/">nook<span>✳</span></a><p>Đồ dùng tốt. Ngày làm việc vui.</p><span>© 2026 Nook · Demo store</span></footer>
+  <dialog id="cart-dialog" aria-labelledby="cart-title">
+    <div class="drawer-heading"><div><p class="eyebrow">MÓN ĐỒ BẠN ĐÃ CHỌN</p><h2 id="cart-title">Giỏ hàng</h2></div><button class="close-button" id="close-cart" aria-label="Đóng giỏ hàng">×</button></div>
+    <div id="cart-items" class="cart-items"></div>
+    <div class="cart-bottom" id="cart-bottom"><div class="total-row"><span>Tạm tính</span><strong id="subtotal"></strong></div><div class="shipping-row"><span>Giao hàng</span><span>Miễn phí</span></div><p class="checkout-note">Đơn thử nghiệm được lưu vào cửa hàng. Không thanh toán, không cần tên hay địa chỉ.</p><p id="checkout-error" class="error" role="alert"></p><button id="checkout" class="checkout-button">Đặt hàng thử nghiệm <span>→</span></button></div>
+    <div id="order-success" class="order-success" hidden></div>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

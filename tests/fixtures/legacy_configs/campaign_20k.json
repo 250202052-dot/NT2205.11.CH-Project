@@ -1,0 +1,20 @@
+{
+  "schema_version": "lab-campaign-v1",
+  "seed": 2205,
+  "timezone": "Asia/Bangkok",
+  "slots": ["09:00", "12:00", "15:00"],
+  "slot_budget_seconds": 5400,
+  "max_rounds_per_slot": 18,
+  "days": [
+    {"day": 1, "targets": {"benign": 4000, "misconfiguration": 0, "policy_violation": 0, "attack_behavior": 0}},
+    {"day": 2, "targets": {"benign": 2500, "misconfiguration": 500, "policy_violation": 750, "attack_behavior": 250}},
+    {"day": 3, "targets": {"benign": 2500, "misconfiguration": 500, "policy_violation": 750, "attack_behavior": 250}},
+    {"day": 4, "targets": {"benign": 2500, "misconfiguration": 500, "policy_violation": 750, "attack_behavior": 250}},
+    {"day": 5, "targets": {"benign": 2500, "misconfiguration": 500, "policy_violation": 750, "attack_behavior": 250}}
+  ],
+  "workloads": [
+    {"name": "low", "background_http_interval": 3, "background_ssh_interval": 8, "ssh_hold_ranges": [[0.2, 1], [5, 15], [30, 120], [120, 150]], "tls_rate_limits": [0, 0, 2048, 512]},
+    {"name": "normal", "background_http_interval": 1, "background_ssh_interval": 3, "ssh_hold_ranges": [[0.2, 1], [0.2, 1], [1, 5], [5, 30]], "tls_rate_limits": [0, 0, 4096]},
+    {"name": "busy", "background_http_interval": 0.3, "background_ssh_interval": 1, "ssh_hold_ranges": [[0.2, 1], [1, 3], [5, 10]], "tls_rate_limits": [0, 0, 0, 8192]}
+  ]
+}

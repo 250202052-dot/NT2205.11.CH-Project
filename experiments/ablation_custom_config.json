@@ -1,0 +1,13 @@
+{
+  "dataset_directory": "experiments/datasets/custom_data_v1_ablation",
+  "feature_config": "experiments/ablation_features_training_v2.json",
+  "output_directory": "experiments/results/custom_ablation",
+  "labels": [
+    "benign",
+    "misconfiguration",
+    "policy_violation",
+    "attack_behavior"
+  ],
+  "require_all_labels_per_split": true,
+  "require_complete_quota": true
+}
